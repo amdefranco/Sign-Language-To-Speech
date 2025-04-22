@@ -55,6 +55,6 @@ iface = gr.Interface(
 )
 
 if __name__ == "__main__":
-    iface.launch(share=True, debug=Truce, show_error=True)
+    iface.launch(share=True, debug=True, show_error=True)
     # print(llm_pipe("Fix the grammer for the sentence, make minimal changes as possible\n\nSentence: woman"))
     

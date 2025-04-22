@@ -6,8 +6,15 @@ from transformers import VideoMAEForVideoClassification, VideoMAEImageProcessor
 from transformers import pipeline
 import json
 from itertools import groupby
+import torch.nn.functional as F
+from espnet2.bin.tts_inference import Text2Speech
+import soundfile as sf
 
-def read_video_as_windows(video_path, fps=30, window_sec=2, stride_sec=1):
+import nltk
+nltk.data.path.append("/home/rvmalhot/nltk_data")
+nltk.download('averaged_perceptron_tagger_eng')
+
+def read_video_as_windows(video_path, fps=30, window_sec=2, stride_sec=4):
     """Slice a video into (T, H, W, C) sliding window chunks."""
     container = av.open(video_path)
     stream = container.streams.video[0]
@@ -63,15 +70,32 @@ def load_labels():
 
     return index_to_gloss
 
+
+def text_to_speech(tts, text, output_wav_path="output.wav"):
+    # Run synthesis
+    wav = tts(text)["wav"]
+
+    # Save to WAV file
+    sf.write(output_wav_path, wav.view(-1).cpu().numpy(), 22050)
+    print(f"Saved synthesized audio to {output_wav_path}")
+
+
 def main():
     model_path = "./videomae-base-finetuned-ucf101-subset-run1/final_model"  # Or ./final_model
-    video_path = "./yolo-wlasl-classify/val/116/4.mp4"
+    video_path = "./sign_example.mov"
+    video_path = "./yolo-wlasl-classify/train/108/14.mp4"
 
     model = VideoMAEForVideoClassification.from_pretrained(model_path)
     processor = VideoMAEImageProcessor.from_pretrained(model_path)
-    # llm_model = "google/flan-t5-large"
-    # llm_pipe = pipeline("text2text-generation", model=llm_model)
+    llm_model = "google/flan-t5-large"
+    llm_pipe = pipeline("text2text-generation", model=llm_model)
 
+    # Load pretrained TTS model (you can swap this out with any model in espnet_model_zoo)
+    tts = Text2Speech.from_pretrained(
+            model_tag="kan-bayashi/ljspeech_vits",
+            device="cuda" if torch.cuda.is_available() else "cpu"
+        )
+    
     windows = read_video_as_windows(video_path)
     print(f"Extracted {len(windows)} clips")
 
@@ -80,10 +104,14 @@ def main():
     predictions = []
     for i, clip in enumerate(windows):
         logits = run_inference(model, processor, clip)
-        pred = logits.argmax(-1).item()
-        label = model.config.id2label[pred]
-        predictions.append(label_map[label])
-        print(f"[Window {i}] Predicted class: {label}")
+        logits = torch.tensor(logits).squeeze(0)
+        probs = F.softmax(torch.tensor(logits), dim=-1)  # convert logits to probabilities
+        pred = probs.argmax(-1).item()
+        confidence = probs[pred].item()  # this is the probability of the predicted label
+        label = label_map[str(pred)]
+        print(f"[Window {i}] Predicted class: {pred} {label} {confidence}")
+        if confidence * 100 > 5:
+            predictions.append(label)
 
     print("Final predictions across sliding windows:", predictions)
 
@@ -95,11 +123,11 @@ def main():
     print("deduped sentence:", deduped)
 
 
-    # prompt = f"Remove all duplicate words in this sentence: {sentence}"
-    # result = llm_pipe(prompt, max_new_tokens=30)[0]['generated_text']
-    # print(f"Cleaned Sentence: {result}")
+    prompt = f"Please make this sentence gramatically correct and fill in any missing words: {sentence}"
+    result = llm_pipe(prompt, max_new_tokens=30)[0]['generated_text']
+    print(f"Cleaned Sentence: {result}")
 
-
+    text_to_speech(tts, result)
 
 if __name__ == "__main__":
     main()

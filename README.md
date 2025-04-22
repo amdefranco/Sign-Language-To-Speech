@@ -55,6 +55,8 @@ We do an ensemble of three models
 
 The idea of the sliding window is to capture indiviual words that occur in the duration the video
 
+A transformer based model is used because sign language recognition requires identifying movement across multiple frames. We believe attention is a good method to recognize this.
+
 ### LLM
 
 1. First we dedup words that occur consecutively in a sentence

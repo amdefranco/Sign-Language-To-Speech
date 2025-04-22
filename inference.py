@@ -100,7 +100,7 @@ def inference_windows(windows, model, processor, label_map):
         confidence = probs[pred].item()  # this is the probability of the predicted label
         label = label_map[str(pred)]
         print(f"[Window {i}] Predicted class: {pred} {label} {confidence}")
-        if confidence * 100 > 5:
+        if confidence * 100 > 2:
             predictions.append(label)
 
     return predictions

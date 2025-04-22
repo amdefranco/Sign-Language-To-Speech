@@ -78,29 +78,19 @@ def text_to_speech(tts, text, output_wav_path="output.wav"):
     # Save to WAV file
     sf.write(output_wav_path, wav.view(-1).cpu().numpy(), 22050)
     print(f"Saved synthesized audio to {output_wav_path}")
+    return output_wav_path
 
 
-def main():
-    model_path = "./videomae-base-finetuned-ucf101-subset-run1/final_model"  # Or ./final_model
-    video_path = "./sign_example.mov"
-    video_path = "./yolo-wlasl-classify/train/108/14.mp4"
 
-    model = VideoMAEForVideoClassification.from_pretrained(model_path)
-    processor = VideoMAEImageProcessor.from_pretrained(model_path)
-    llm_model = "google/flan-t5-large"
-    llm_pipe = pipeline("text2text-generation", model=llm_model)
 
-    # Load pretrained TTS model (you can swap this out with any model in espnet_model_zoo)
-    tts = Text2Speech.from_pretrained(
-            model_tag="kan-bayashi/ljspeech_vits",
-            device="cuda" if torch.cuda.is_available() else "cpu"
-        )
-    
-    windows = read_video_as_windows(video_path)
-    print(f"Extracted {len(windows)} clips")
+def dedup_sentence(predictions):
+    # Prompt the LLM to convert glosses into fluent English
+    sentence = ' '.join(predictions)        
+    deduped = " ".join([k for k,v in groupby(sentence.split())])
+    print("deduped sentence:", deduped)
 
-    label_map = load_labels()
 
+def inference_windows(windows, model, processor, label_map):
     predictions = []
     for i, clip in enumerate(windows):
         logits = run_inference(model, processor, clip)
@@ -113,20 +103,39 @@ def main():
         if confidence * 100 > 5:
             predictions.append(label)
 
-    print("Final predictions across sliding windows:", predictions)
+    return predictions
 
 
-
-    # Prompt the LLM to convert glosses into fluent English
-    sentence = ' '.join(predictions)        
-    deduped = " ".join([k for k,v in groupby(sentence.split())])
-    print("deduped sentence:", deduped)
-
-
-    prompt = f"Please make this sentence gramatically correct and fill in any missing words: {sentence}"
+def ensemble_llm(llm_pipe, sentence):
+    prompt = f"Fix the grammer for the sentence, make minimal changes as possible\n\nSentence: {sentence}"
     result = llm_pipe(prompt, max_new_tokens=30)[0]['generated_text']
     print(f"Cleaned Sentence: {result}")
+    return result
 
+
+def main():
+    model_path = "./videomae-base-finetuned-ucf101-subset-run1/final_model"  # Or ./final_model
+    video_path = "./sign_example.mov"
+    video_path = "./yolo-wlasl-classify/train/108/14.mp4"
+
+    model = VideoMAEForVideoClassification.from_pretrained(model_path)
+    processor = VideoMAEImageProcessor.from_pretrained(model_path)
+    llm_model = "google/flan-t5-xl"
+    llm_pipe = pipeline("text2text-generation", model=llm_model)
+
+    # Load pretrained TTS model (you can swap this out with any model in espnet_model_zoo)
+    tts = Text2Speech.from_pretrained(
+            model_tag="kan-bayashi/ljspeech_vits",
+            device="cuda" if torch.cuda.is_available() else "cpu"
+        )
+    
+    windows = read_video_as_windows(video_path)
+    print(f"Extracted {len(windows)} clips")
+    label_map = load_labels()
+    predictions = inference_windows(windows, model, processor, label_map)
+    print("Final predictions across sliding windows:", predictions)
+    sentence = dedup_sentence(predictions)
+    result = ensemble_llm(llm_pipe, sentence)
     text_to_speech(tts, result)
 
 if __name__ == "__main__":

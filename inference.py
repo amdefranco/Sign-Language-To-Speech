@@ -88,7 +88,7 @@ def dedup_sentence(predictions):
     sentence = ' '.join(predictions)        
     deduped = " ".join([k for k,v in groupby(sentence.split())])
     print("deduped sentence:", deduped)
-
+    return deduped
 
 def inference_windows(windows, model, processor, label_map):
     predictions = []
@@ -108,7 +108,7 @@ def inference_windows(windows, model, processor, label_map):
 
 def ensemble_llm(llm_pipe, sentence):
     prompt = f"Fix the grammer for the sentence, make minimal changes as possible\n\nSentence: {sentence}"
-    result = llm_pipe(prompt, max_new_tokens=30)[0]['generated_text']
+    result = llm_pipe(prompt)[0]['generated_text']
     print(f"Cleaned Sentence: {result}")
     return result
 
@@ -120,7 +120,7 @@ def main():
 
     model = VideoMAEForVideoClassification.from_pretrained(model_path)
     processor = VideoMAEImageProcessor.from_pretrained(model_path)
-    llm_model = "google/flan-t5-xl"
+    llm_model = "google/flan-t5-large"
     llm_pipe = pipeline("text2text-generation", model=llm_model)
 
     # Load pretrained TTS model (you can swap this out with any model in espnet_model_zoo)

@@ -197,7 +197,7 @@ def train_model(model, train_dataset, val_dataset, image_processor, model_ckpt, 
         data_collator=collate_fn,
     )
     
-    train_results = trainer.train(resume_from_checkpoint="./videomae-base-finetuned-ucf101-subset-run1/checkpoint-5372")
+    train_results = trainer.train()
     
     # Optionally push to hub
     # trainer.push_to_hub()
@@ -236,7 +236,7 @@ def main():
     label2id, id2label = get_label_mappings()
     
     # Load model
-    model, image_processor = load_model(label2id, id2label)
+    model, image_processor = load_model(label2id, id2label, model_ckpt="./videomae-base-finetuned-ucf101-subset-run1/checkpoint-5372")
     
     # Prepare datasets
     train_dataset, val_dataset, clip_duration = prepare_datasets(

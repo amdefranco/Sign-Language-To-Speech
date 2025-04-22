@@ -1,14 +1,8 @@
-#!/usr/bin/env python
-# Video Classification Fine-tuning Script
-# Adapted from https://github.com/huggingface/transformers/blob/main/docs/source/en/tasks/video_classification.md
-
 import os
 import torch
 import numpy as np
 import pathlib
-import imageio
 import evaluate
-from IPython.display import Image
 from transformers import (
     VideoMAEImageProcessor, 
     VideoMAEForVideoClassification,
@@ -22,8 +16,6 @@ from pytorchvideo.transforms import (
     ApplyTransformToKey,
     Normalize,
     RandomShortSideScale,
-    RemoveKey,
-    ShortSideScale,
     UniformTemporalSubsample,
 )
 
@@ -37,7 +29,7 @@ from torchvision.transforms import (
 
 # Set batch size
 batch_size = 8
-
+num_gpu = 1
 
 def count_videos(dataset_root_path):
     """Count the number of videos in the dataset."""
@@ -151,31 +143,6 @@ def prepare_datasets(dataset_root_path, image_processor, model):
     
     return train_dataset, val_dataset, clip_duration
 
-def unnormalize_img(img, mean, std):
-    """Un-normalizes the image pixels."""
-    img = (img * std) + mean
-    img = (img * 255).astype("uint8")
-    return img.clip(0, 255)
-
-def create_gif(video_tensor, mean, std, filename="sample.gif"):
-    """Prepares a GIF from a video tensor.
-    
-    The video tensor is expected to have the following shape:
-    (num_frames, num_channels, height, width).
-    """
-    frames = []
-    for video_frame in video_tensor:
-        frame_unnormalized = unnormalize_img(video_frame.permute(1, 2, 0).numpy(), mean, std)
-        frames.append(frame_unnormalized)
-    kargs = {"duration": 0.25}
-    imageio.mimsave(filename, frames, "GIF", **kargs)
-    return filename
-
-def display_gif(video_tensor, mean, std, gif_name="sample.gif"):
-    """Prepares and displays a GIF from a video tensor."""
-    video_tensor = video_tensor.permute(1, 0, 2, 3)
-    gif_filename = create_gif(video_tensor, mean, std, gif_name)
-    return Image(filename=gif_filename)
 
 def collate_fn(examples):
     """Collate function for batching examples."""
@@ -194,14 +161,17 @@ def compute_metrics(eval_pred):
 def train_model(model, train_dataset, val_dataset, image_processor, model_ckpt, num_epochs=4):
     """Train the model using the Trainer class."""
     model_name = model_ckpt.split("/")[-1]
-    new_model_name = f"{model_name}-finetuned-ucf101-subset"
-    
+    new_model_name = f"{model_name}-continued-training"
+
+    max_steps = (train_dataset.num_videos // (batch_size * num_gpu)) * (num_epochs*2)
+
+    print("max steps", max_steps)
     args = TrainingArguments(
         new_model_name,
         remove_unused_columns=False,
         eval_strategy="epoch",
         save_strategy="epoch",
-        learning_rate=5e-5,
+        learning_rate=1e-4,
         per_device_train_batch_size=batch_size,
         per_device_eval_batch_size=batch_size,
         warmup_ratio=0.1,
@@ -209,7 +179,12 @@ def train_model(model, train_dataset, val_dataset, image_processor, model_ckpt, 
         load_best_model_at_end=True,
         metric_for_best_model="accuracy",
         push_to_hub=False,  # Set to True if you want to push to Hub
-        max_steps=(train_dataset.num_videos // batch_size) * num_epochs,
+        max_steps=max_steps,
+        log_level="debug",  # Global log level (Python's logging module)
+        log_level_replica="debug",
+        fp16=True,
+        max_grad_norm=1.0,
+        adam_epsilon=1e-6
     )
     
     trainer = Trainer(
@@ -222,7 +197,7 @@ def train_model(model, train_dataset, val_dataset, image_processor, model_ckpt, 
         data_collator=collate_fn,
     )
     
-    train_results = trainer.train()
+    train_results = trainer.train(resume_from_checkpoint="./videomae-base-finetuned-ucf101-subset-run1/checkpoint-5372")
     
     # Optionally push to hub
     # trainer.push_to_hub()
@@ -274,7 +249,7 @@ def main():
     )
     
     # Save the model
-    trainer.save_model("./final_model")
+    trainer.save_model("./continued_model")
     
     # Test on a sample video
     sample_test_video = next(iter(val_dataset))
@@ -283,12 +258,12 @@ def main():
     print("Predicted class:", model.config.id2label[predicted_class_idx])
     
     # Create a pipeline for inference
-    print("Creating pipeline for inference...")
-    video_cls = pipeline(
-        task="video-classification", 
-        model="./final_model",
-        device=0 if torch.cuda.is_available() else -1
-    )
+    # print("Creating pipeline for inference...")
+    # video_cls = pipeline(
+    #     task="video-classification", 
+    #     model="./final_model",
+    #     device=0 if torch.cuda.is_available() else -1
+    # )
     
     # You can use the pipeline like this:
     # result = video_cls("path/to/video.mp4")

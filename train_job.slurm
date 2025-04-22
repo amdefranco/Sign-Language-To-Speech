@@ -7,6 +7,6 @@
 #SBATCH --mem=50GB
 #SBATCH --nodes=1
 
-
+source ~/.bashrc
 conda activate asl-ez
-CUDA_VISIBLE_DEVICES=0 python train.py
+conda run -n asl-ez CUDA_VISIBLE_DEVICES=0 python train.py

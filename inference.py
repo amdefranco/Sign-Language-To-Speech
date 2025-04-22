@@ -3,6 +3,7 @@ import torch
 import numpy as np
 import av
 from transformers import VideoMAEForVideoClassification, VideoMAEImageProcessor
+from transformers import pipeline
 import json
 
 def read_video_as_windows(video_path, fps=30, window_sec=2, stride_sec=1):
@@ -67,6 +68,7 @@ def main():
 
     model = VideoMAEForVideoClassification.from_pretrained(model_path)
     processor = VideoMAEImageProcessor.from_pretrained(model_path)
+    flan_pipe = pipeline("text2text-generation", model="google/flan-t5-base")
 
     windows = read_video_as_windows(video_path)
     print(f"Extracted {len(windows)} clips")
@@ -82,6 +84,14 @@ def main():
         print(f"[Window {i}] Predicted class: {label}")
 
     print("Final predictions across sliding windows:", predictions)
+
+
+
+    # Prompt the LLM to convert glosses into fluent English
+    sentence = ' '.join(predictions)    
+    prompt = f"Please rewrite this sentence to make sense. Try to keep as much of the original meaning as possible\n\n{sentence}"
+    result = flan_pipe(prompt, max_new_tokens=30)[0]['generated_text']
+    print(f"Cleaned Sentence: {result}")
 
 
 if __name__ == "__main__":
